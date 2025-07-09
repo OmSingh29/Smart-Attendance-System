@@ -1,3 +1,5 @@
+This is a face recognition-based attendance system built with Python, OpenCV, and Streamlit. It allows users to register their face using a webcam and mark attendance automatically. Attendance records are saved in CSV files, tagged with the current date and timestamp.
+
 1) To register your face to the model (face will be recorded via webcam).
 ```
 python Add_faces.py
