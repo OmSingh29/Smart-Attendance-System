@@ -8,7 +8,7 @@ python Add_faces.py
 python test.py
 ```
 
-3). Attendance will be displayed here and can be downloaded in csv format
+3) Attendance will be displayed here and can be downloaded in csv format
 ```
 streamlit run app.py
 ```
