@@ -13,5 +13,5 @@ python test.py
 
 3) Attendance will be displayed here and can be downloaded in csv format.
 ```
-streamlit run app.py
+https://smart-attendance-system-a6iqk72wwuwrjtd8s64mxe.streamlit.app/
 ```
