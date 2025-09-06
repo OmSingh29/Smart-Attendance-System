@@ -23,12 +23,16 @@ This application allows you to:
 ### 1. Clone the Repository
 ```
 git clone https://github.com/<your-username>/smart-attendance-system.git
+```
+```
 cd smart-attendance-system
 ```
 
 ### 2. Create Virtual Environment (Recommended)
 ```
-conda create -n smart_attendance python=3.9 -y
+conda create -n smart_attendance python=3.11
+```
+```
 conda activate smart_attendance
 ```
 
