@@ -51,7 +51,8 @@ streamlit run app.py
 
 ### 2. Register New Face
 - Enter your **name**  
-- Click **Start Registration**  
+- Click **Start Registration**
+- Click the **Start** button to turn on the camera
 - The system will capture 5 images of your face  
 
 ### 3. Take Attendance
