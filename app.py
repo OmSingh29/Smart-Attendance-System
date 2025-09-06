@@ -10,6 +10,9 @@ import time
 import numpy as np
 import threading
 import av  # Needed to return frames correctly
+import warnings
+
+warnings.filterwarnings("ignore")
 
 # Import functions from our custom modules
 from face_registration import save_face_data
@@ -100,6 +103,7 @@ with st.container():
                 mode=WebRtcMode.SENDRECV,
                 video_processor_factory=RegistrationProcessor,
                 media_stream_constraints={"video": True, "audio": False},
+                async_processing=False
             )
 
             if ctx.video_processor:
@@ -166,26 +170,16 @@ with st.container():
                     else:
                         st.success(message)
                 return av.VideoFrame.from_ndarray(img, format="bgr24")
-
+            
         ctx_att = webrtc_streamer(
             key="attendance",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=AttendanceProcessor,
             media_stream_constraints={"video": True, "audio": False},
+            async_processing=False
         )
 
         if ctx_att.state.playing:
-            # print('Here ctx_att')
-            # recognized_name = st.session_state.get("recognized_name", "Unknown")
-            # print('Rec',recognized_name)
-            # if recognized_name != "Unknown":
-            #     if st.button(f"Mark Attendance for {recognized_name}", key=f"att_{recognized_name}"):
-            #         message = mark_attendance(recognized_name)
-            #         st.info(message)  # Shows success/error in the UI
-            #         if "Error" in message:
-            #             st.error(message)
-            #         else:
-            #             st.success(message)
             time.sleep(0.1)
             st.rerun()
     else:

@@ -6,6 +6,9 @@ import csv
 from datetime import datetime
 from sklearn.neighbors import KNeighborsClassifier
 from pathlib import Path
+import warnings
+
+warnings.filterwarnings("ignore")
 
 def load_model():
     """
@@ -31,6 +34,7 @@ def mark_attendance(name):
     Marks attendance for a given name by appending it to today's CSV file.
     """
     try:
+        print('Entered the function')
         ts = datetime.now()
         date = ts.strftime("%d-%m-%Y")
         timestamp = ts.strftime("%H:%M:%S")
@@ -48,12 +52,19 @@ def mark_attendance(name):
 
         file_exists = filename.is_file()
 
+        if file_exists:
+            with open(filename) as f:
+                lines = f.read().splitlines()[1:]  # skip header
+            if any(name == line.split(',')[0] for line in lines):
+                print('Already marked')
+                return "This person's attendance has already been taken"
+
         with filename.open("a", newline='') as csvfile:
             writer = csv.writer(csvfile)
             if not file_exists:
                 writer.writerow(['NAME', 'TIME'])  # Write header if new file
             writer.writerow(attendance_record)
-
+        print('Noted')
         return f"Attendance marked for {name} at {timestamp}"
 
     except Exception as e:

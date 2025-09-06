@@ -3,6 +3,9 @@
 import pickle
 import numpy as np
 import os
+import warnings
+
+warnings.filterwarnings("ignore")
 
 def save_face_data(name, faces_to_save):
     """
