@@ -95,7 +95,6 @@ with st.container():
 
     if st.session_state.start_registration:
         if len(st.session_state.captured_faces) < 5:
-            st.info("Please show your face to the camera. Capturing 5 images...")
             st.warning("Click the 'START' button below to turn on your camera.")
 
             ctx = webrtc_streamer(
@@ -109,6 +108,9 @@ with st.container():
             if ctx.video_processor:
                 with ctx.video_processor.lock:
                     st.session_state.captured_faces = ctx.video_processor.local_captures.copy()
+
+            if ctx.state.playing:
+                st.info("Please show your face to the camera. Capturing 5 images...")
 
             st.info(st.session_state.get('feedback', 'Initializing...'))
             st.progress(len(st.session_state.captured_faces) / 5)
