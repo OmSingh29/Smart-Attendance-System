@@ -11,6 +11,7 @@ import numpy as np
 import threading
 import av  # Needed to return frames correctly
 import warnings
+from zoneinfo import ZoneInfo
 
 warnings.filterwarnings("ignore")
 
@@ -190,7 +191,7 @@ with st.container():
 # Section 3: Show Today’s Attendance
 with st.container():
     st.subheader("📅 Today's Attendance")
-    date_str = datetime.now().strftime("%d-%m-%Y")
+    date_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y")
     filename = f"Attendance/Attendance_{date_str}.csv"
     if os.path.exists(filename):
         try:

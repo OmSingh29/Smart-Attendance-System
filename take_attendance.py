@@ -7,6 +7,7 @@ from datetime import datetime
 from sklearn.neighbors import KNeighborsClassifier
 from pathlib import Path
 import warnings
+from zoneinfo import ZoneInfo
 
 warnings.filterwarnings("ignore")
 
@@ -35,7 +36,7 @@ def mark_attendance(name):
     """
     try:
         print('Entered the function')
-        ts = datetime.now()
+        ts = datetime.now(ZoneInfo("Asia/Kolkata"))
         date = ts.strftime("%d-%m-%Y")
         timestamp = ts.strftime("%H:%M:%S")
 
