@@ -168,6 +168,7 @@ with st.container():
                     attendance_register.add(recognized_name)
                     message = mark_attendance(recognized_name)
                     st.info(message)  # Shows success/error in the UI
+                    print(f"Message is {message}")
                     if "Error" in message:
                         st.error(message)
                     else:
