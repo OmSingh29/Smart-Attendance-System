@@ -62,4 +62,4 @@ streamlit run app.py
 
 ### 4. View Today’s Attendance
 - The latest attendance is shown in the **📅 Today's Attendance** section  
-- Attendance is stored as:  
+- Attendance is stored as: CSV file 
