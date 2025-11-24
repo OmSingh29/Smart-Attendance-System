@@ -23,6 +23,8 @@ from take_attendance import load_model, mark_attendance
 st.set_page_config(page_title="Smart Attendance System", layout="centered")
 st.title("📋 Smart Attendance System")
 
+ATTENDANCE_DIR = "Attendance"
+
 # --- Initialize Session State ---
 if "start_registration" not in st.session_state:
     st.session_state.start_registration = False
@@ -81,7 +83,7 @@ class RegistrationProcessor(VideoTransformerBase):
 
 # --- App Sections ---
 
-# Section 1: Register New Face
+# Section 1: Register New Face  (UNCHANGED)
 with st.container():
     st.subheader("🧑‍💻 Register New Face")
     st.session_state.new_name = st.text_input("Enter your name:", value=st.session_state.get('new_name', ''), key="new_name_input")
@@ -138,7 +140,7 @@ with st.container():
             time.sleep(3)
             st.rerun()
 
-# Section 2: Take Attendance
+# Section 2: Take Attendance  (UNCHANGED)
 with st.container():
     st.subheader("✅ Take Attendance")
     attendance_register=set()
@@ -189,16 +191,94 @@ with st.container():
     else:
         st.info("Please register a face before taking attendance.")
 
-# Section 3: Show Today’s Attendance
+# ===== Section 3: Attendance Viewer & Analytics (ENHANCED, SAFE) =====
 with st.container():
-    st.subheader("📅 Today's Attendance")
-    date_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y")
-    filename = f"Attendance/Attendance_{date_str}.csv"
+    st.subheader("📅 Attendance Viewer & Analytics")
+
+    # ---- Select Date & Show That Day's Attendance ----
+    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    selected_date = st.date_input("Select date to view attendance", value=today_ist)
+
+    date_str = selected_date.strftime("%d-%m-%Y")
+    filename = f"{ATTENDANCE_DIR}/Attendance_{date_str}.csv"
+
     if os.path.exists(filename):
         try:
-            df = pd.read_csv(filename)
-            st.dataframe(df)
+            df_day = pd.read_csv(filename)
+
+            st.markdown("### 📄 Attendance for Selected Date")
+
+            # Summary metrics
+            total_entries = len(df_day)
+            unique_students = df_day["NAME"].nunique() if "NAME" in df_day.columns else 0
+            first_time = df_day["TIME"].min() if "TIME" in df_day.columns else "-"
+            last_time = df_day["TIME"].max() if "TIME" in df_day.columns else "-"
+
+            c1, c2 = st.columns(2)
+            c1.metric("Total Entries", total_entries)
+            c2.metric("Unique Students", unique_students)
+
+            # Full time range as normal text (no truncation)
+            st.write(f"⏳ **Time Range:** `{first_time}` — `{last_time}`")
+
+            st.dataframe(df_day)
+
+            # Download button for this day's CSV
+            with open(filename, "rb") as f:
+                st.download_button(
+                    label="⬇ Download this day's CSV",
+                    data=f,
+                    file_name=os.path.basename(filename),
+                    mime="text/csv"
+                )
+
         except Exception as e:
             st.error(f"Could not read the attendance file: {e}")
     else:
-        st.warning("No attendance has been recorded for today yet.")
+        st.warning("No attendance has been recorded for the selected date yet.")
+
+    # ---- Analytics Across All Days ----
+    st.markdown("### 📊 Attendance Analytics (All Days)")
+
+    if os.path.exists(ATTENDANCE_DIR):
+        frames = []
+        for fname in os.listdir(ATTENDANCE_DIR):
+            if fname.startswith("Attendance_") and fname.endswith(".csv"):
+                fpath = os.path.join(ATTENDANCE_DIR, fname)
+                try:
+                    df_tmp = pd.read_csv(fpath)
+                    # Extract date from filename: Attendance_DD-MM-YYYY.csv
+                    date_part = fname.replace("Attendance_", "").replace(".csv", "")
+                    df_tmp["DATE"] = date_part
+                    frames.append(df_tmp)
+                except Exception:
+                    continue
+
+        if frames:
+            df_all = pd.concat(frames, ignore_index=True)
+
+            if "NAME" in df_all.columns and "DATE" in df_all.columns:
+                total_days = df_all["DATE"].nunique()
+                summary = (
+                    df_all.groupby("NAME")["DATE"]
+                    .nunique()
+                    .reset_index(name="Days Present")
+                    .sort_values("Days Present", ascending=False)
+                )
+
+                if total_days > 0:
+                    summary["Attendance %"] = (summary["Days Present"] / total_days * 100).round(2)
+
+                st.dataframe(summary)
+
+                # Simple bar chart: Days Present per student
+                st.bar_chart(
+                    data=summary.set_index("NAME")["Days Present"],
+                    use_container_width=True
+                )
+            else:
+                st.info("Attendance data is missing NAME/DATE columns.")
+        else:
+            st.info("No attendance files found yet for analytics.")
+    else:
+        st.info("Attendance directory does not exist yet. Take some attendance first.")
