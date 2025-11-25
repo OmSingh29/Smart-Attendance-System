@@ -231,6 +231,36 @@ with st.container():
         else:
             st.warning("No attendance has been recorded for today yet.")
 
+# ======================= Section: Attendance Viewer (Any Date) =======================
+with st.container():
+    st.subheader("📅 View Attendance for Any Date")
+
+    collection = get_attendance_collection()
+    if collection is None:
+        st.info("Cloud database is not configured.")
+    else:
+        # choose a date
+        selected_date = st.date_input("Select date", datetime.now(ZoneInfo("Asia/Kolkata")).date())
+        selected_date_str = selected_date.strftime("%d-%m-%Y")
+
+        # fetch docs for that date
+        docs = list(collection.find({"date": selected_date_str}))
+
+        if docs:
+            df_sel = pd.DataFrame(docs)
+            if "_id" in df_sel.columns:
+                df_sel.drop(columns=["_id"], inplace=True)
+            df_sel.rename(columns={"name": "NAME", "time": "TIME", "date": "DATE"}, inplace=True)
+            df_sel = df_sel[["NAME", "TIME"]]
+
+            # numbering from 1
+            df_sel.insert(0, "No.", range(1, len(df_sel) + 1))
+
+            st.success(f"Attendance for {selected_date_str}")
+            st.dataframe(df_sel, hide_index=True)
+        else:
+            st.warning(f"No attendance found for {selected_date_str}.")
+
 
 # ======================= Section 4: Admin Panel (MongoDB-based) =======================
 with st.container():
