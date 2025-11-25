@@ -12,7 +12,6 @@ import av
 import warnings
 from zoneinfo import ZoneInfo
 from pathlib import Path
-
 from face_registration import save_face_data
 from take_attendance import load_model, mark_attendance
 from db import get_attendance_collection   # <-- NEW: for reading Mongo in app
