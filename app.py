@@ -3,28 +3,27 @@
 import streamlit as st
 import cv2
 import pandas as pd
-import os
 from datetime import datetime
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import time
 import numpy as np
 import threading
-import av  # Needed to return frames correctly
+import av
 import warnings
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
-warnings.filterwarnings("ignore")
-
-# Import functions from our custom modules
 from face_registration import save_face_data
 from take_attendance import load_model, mark_attendance
+from db import get_attendance_collection   # <-- NEW: for reading Mongo in app
+
+warnings.filterwarnings("ignore")
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Smart Attendance System", layout="centered")
 st.title("Smart Attendance System")
 
-ATTENDANCE_DIR = "Attendance"
+DEFAULT_ADMIN_PASSWORD = "admin123"  # this one is shown on the site
 
 # --- Initialize Session State ---
 if "start_registration" not in st.session_state:
@@ -41,8 +40,12 @@ if "erase_all_confirm" not in st.session_state:
     st.session_state.erase_all_confirm = False
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
-if "admin_password" not in st.session_state:
-    st.session_state.admin_password = ""
+if "last_marked_name" not in st.session_state:
+    st.session_state.last_marked_name = ""
+if "last_mark_time" not in st.session_state:
+    st.session_state.last_mark_time = 0
+if "admin_password_current" not in st.session_state:
+    st.session_state.admin_password_current = DEFAULT_ADMIN_PASSWORD
 
 
 # --- Load Models and Data ---
@@ -89,12 +92,15 @@ class RegistrationProcessor(VideoTransformerBase):
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# --- App Sections ---
 
-# Section 1: Register New Face  (UNCHANGED)
+# ======================= Section 1: Register New Face =======================
 with st.container():
     st.subheader("🧑‍💻 Register New Face")
-    st.session_state.new_name = st.text_input("Enter your name:", value=st.session_state.get('new_name', ''), key="new_name_input")
+    st.session_state.new_name = st.text_input(
+        "Enter your name:",
+        value=st.session_state.get('new_name', ''),
+        key="new_name_input"
+    )
 
     if st.button("📸 Start Registration", key="start_reg_btn"):
         if not st.session_state.new_name:
@@ -130,7 +136,6 @@ with st.container():
             if ctx.state.playing:
                 time.sleep(0.2)
                 st.rerun()
-
         else:
             st.session_state.start_registration = False
             st.success("Capture complete! Saving your face data...")
@@ -148,20 +153,25 @@ with st.container():
             time.sleep(3)
             st.rerun()
 
-# Section 2: Take Attendance  (UNCHANGED)
+
+# ======================= Section 2: Take Attendance =======================
 with st.container():
     st.subheader("✅ Take Attendance")
-    attendance_register=set()
+
     if knn:
         st.info("Click 'START' below to begin attendance.")
 
         class AttendanceProcessor(VideoTransformerBase):
+            def __init__(self):
+                # keep track of whose attendance has been marked in this session
+                self.attendance_register = set()
+
             def recv(self, frame):
                 img = frame.to_ndarray(format="bgr24")
-                recognized_name = ""
-
                 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
                 faces = facedetect.detectMultiScale(gray, 1.3, 5)
+
+                recognized_name = ""
 
                 for (x, y, w, h) in faces:
                     crop_img = img[y:y+h, x:x+w]
@@ -169,56 +179,69 @@ with st.container():
                         resized_img = cv2.resize(crop_img, (50, 50)).flatten().reshape(1, -1)
                         output = knn.predict(resized_img)
                         recognized_name = output[0]
-                        cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                        cv2.putText(img, recognized_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                                    0.7, (255, 255, 255), 2)
 
-                st.session_state["recognized_name"] = recognized_name
-                if recognized_name and recognized_name not in attendance_register:
-                    attendance_register.add(recognized_name)
+                        # draw box + label so you can SEE who it thinks you are
+                        cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                        cv2.putText(
+                            img, recognized_name, (x, y - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2
+                        )
+
+                # mark attendance ONCE per person for this run
+                if recognized_name and recognized_name not in self.attendance_register:
+                    self.attendance_register.add(recognized_name)
                     message = mark_attendance(recognized_name)
-                    st.info(message)  # Shows success/error in the UI
-                    print(f"Message is {message}")
-                    if "Error" in message:
-                        st.error(message)
-                    else:
-                        st.success(message)
+                    print(f"[ATTENDANCE] {message}")
+
                 return av.VideoFrame.from_ndarray(img, format="bgr24")
-            
-        ctx_att = webrtc_streamer(
+
+        webrtc_streamer(
             key="attendance",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=AttendanceProcessor,
             media_stream_constraints={"video": True, "audio": False},
-            async_processing=False
+            async_processing=False,
         )
 
-        if ctx_att.state.playing:
-            time.sleep(0.1)
-            st.rerun()
     else:
         st.info("Please register a face before taking attendance.")
 
-# ----- Section 3: Simple Today View (optional, kept if you like) -----
+
+# ======================= Section 3: Today's Attendance (from MongoDB) =======================
 with st.container():
     st.subheader("📅 Today's Attendance (Quick View)")
-    today_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y")
-    today_file = f"{ATTENDANCE_DIR}/Attendance_{today_str}.csv"
-    if os.path.exists(today_file):
-        try:
-            df_today = pd.read_csv(today_file)
-            st.dataframe(df_today)
-        except Exception as e:
-            st.error(f"Could not read today's attendance file: {e}")
-    else:
-        st.warning("No attendance has been recorded for today yet.")
 
-# ===== Section 4: 🔐 Admin Panel (Edit + Per-Student Analytics + Comparison) =====
+    today_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y")
+    collection = get_attendance_collection()
+
+    if collection is None:
+        st.info("Cloud database is not configured. Please set MONGO_* in secrets.")
+    else:
+        docs = list(collection.find({"date": today_str}))
+        if docs:
+            df_today = pd.DataFrame(docs)
+            if "_id" in df_today.columns:
+                df_today.drop(columns=["_id"], inplace=True)
+            df_today.rename(columns={"name": "NAME", "time": "TIME", "date": "DATE"}, inplace=True)
+
+            # Add numbering column starting from 1
+            df_today.insert(0, "No.", range(1, len(df_today) + 1))
+
+            st.dataframe(df_today[["No.", "NAME", "TIME"]],hide_index=True)
+
+        else:
+            st.warning("No attendance has been recorded for today yet.")
+
+
+# ======================= Section 4: Admin Panel (MongoDB-based) =======================
 with st.container():
     st.subheader("🔐 Admin Panel")
 
-    # If NOT in admin mode yet → show login
     if not st.session_state.is_admin:
+        # Show ONLY the default password, never the changed one
+        st.caption(f"Default admin password (first time): **{DEFAULT_ADMIN_PASSWORD}**")
+        st.caption("If you have changed the password earlier, please use that new password (it is not shown here).")
+
         password_input = st.text_input(
             "Enter admin password",
             type="password",
@@ -226,173 +249,221 @@ with st.container():
         )
 
         if st.button("🔓 Login as Admin"):
-            if password_input == "admin123":
+            if password_input == st.session_state.admin_password_current:
                 st.session_state.is_admin = True
-                st.session_state.admin_password = ""
                 st.success("Admin mode enabled. Loading admin tools...")
-                st.rerun()  # re-run so that the 'else' block below is executed
+                st.rerun()
             else:
                 st.error("Incorrect admin password.")
     else:
-        # Already in admin mode
         st.success("✅ Admin mode enabled")
 
-        # Logout button
+        # ----- Change admin password (only visible in admin mode) -----
+        with st.expander("Change admin password"):
+            st.write(
+                "The default password is only for first-time use. You can set a new admin password below. "
+                "For security reasons, the new password will NOT be shown on the page."
+            )
+
+            new_pw = st.text_input(
+                "New admin password",
+                type="password",
+                key="new_admin_pw"
+            )
+            new_pw_confirm = st.text_input(
+                "Confirm new admin password",
+                type="password",
+                key="new_admin_pw_confirm"
+            )
+
+            if st.button("✅ Update admin password"):
+                if not new_pw:
+                    st.error("New password cannot be empty.")
+                elif new_pw != new_pw_confirm:
+                    st.error("Passwords do not match.")
+                else:
+                    st.session_state.admin_password_current = new_pw
+                    st.success("Admin password updated successfully. Use the new password next time you log in.")
+
         if st.button("🚪 Exit Admin Mode"):
             st.session_state.is_admin = False
-            st.session_state.admin_password = ""
-            st.session_state.erase_all_confirm = False
             st.info("You have exited admin mode.")
             st.rerun()
 
         tab1, tab2, tab3 = st.tabs(["✏️ Edit Attendance", "📊 Student Analytics", "⚖️ Compare Students"])
 
-        # ---------- TAB 1: EDIT ATTENDANCE ----------
+        # ---------- TAB 1: EDIT ATTENDANCE (Mongo) ----------
         with tab1:
             st.markdown("#### ✏️ Edit / Add / Delete Attendance Records")
 
             today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
             edit_date = st.date_input("Select date to edit", value=today_ist, key="admin_edit_date")
-
             edit_date_str = edit_date.strftime("%d-%m-%Y")
-            edit_filename = f"{ATTENDANCE_DIR}/Attendance_{edit_date_str}.csv"
 
-            if os.path.exists(edit_filename):
-                df_edit = pd.read_csv(edit_filename)
+            collection = get_attendance_collection()
+            if collection is None:
+                st.info("Cloud database is not configured.")
             else:
-                # Empty DataFrame with correct columns if file doesn't exist
-                df_edit = pd.DataFrame(columns=["NAME", "TIME"])
+                docs = list(collection.find({"date": edit_date_str}))
+                if docs:
+                    df_edit = pd.DataFrame(docs)
+                    if "_id" in df_edit.columns:
+                        df_edit.drop(columns=["_id"], inplace=True)
+                    df_edit.rename(
+                        columns={"name": "NAME", "time": "TIME", "date": "DATE"},
+                        inplace=True
+                    )
+                    df_edit = df_edit[["NAME", "TIME"]]
+                else:
+                    df_edit = pd.DataFrame(columns=["NAME", "TIME"])
 
-            st.info("You can add new rows or modify/delete existing rows below.")
-            edited_df = st.data_editor(
-                df_edit,
-                num_rows="dynamic",
-                key="admin_editor"
-            )
-
-            if st.button("💾 Save changes for selected date"):
-                # Ensure Attendance directory exists
-                if not os.path.exists(ATTENDANCE_DIR):
-                    os.makedirs(ATTENDANCE_DIR)
-                edited_df.to_csv(edit_filename, index=False)
-                st.success(f"Saved changes to {edit_filename}")
-
-                st.caption(
-                    "- To add attendance of a person who has not come: add a new row with NAME and TIME.\n"
-                    "- To delete a record: remove that row from the table before saving."
+                st.info("You can add new rows or modify/delete existing rows below.")
+                edited_df = st.data_editor(
+                    df_edit,
+                    num_rows="dynamic",
+                    key="admin_editor"
                 )
 
-        # ---------- TAB 2: STUDENT ANALYTICS ----------
+                if st.button("💾 Save changes for selected date"):
+                    try:
+                        # Replace all records for that date with edited_df
+                        collection.delete_many({"date": edit_date_str})
+
+                        for _, row in edited_df.iterrows():
+                            name_val = str(row.get("NAME", "")).strip()
+                            time_val = str(row.get("TIME", "")).strip()
+                            if not name_val or not time_val:
+                                continue
+
+                            # rebuild a basic timestamp (optional)
+                            ts = datetime.now(ZoneInfo("Asia/Kolkata"))
+                            doc = {
+                                "name": name_val,
+                                "date": edit_date_str,
+                                "time": time_val,
+                                "timestamp": ts.isoformat(),
+                                "source": "admin_edit"
+                            }
+                            collection.insert_one(doc)
+
+                        st.success(f"Saved changes for {edit_date_str}")
+                        st.caption(
+                            "- To add attendance of a person who has not come: add a new row with NAME and TIME.\n"
+                            "- To delete a record: remove that row from the table before saving."
+                        )
+
+                        # 🔁 reload the page so the table reflects the new data immediately
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"Error saving changes: {e}")
+
+        # ---------- TAB 2: STUDENT ANALYTICS (Mongo) ----------
         with tab2:
             st.markdown("#### 📊 Analytics for a Single Student")
 
-            all_frames = []
-            if os.path.exists(ATTENDANCE_DIR):
-                for fname in os.listdir(ATTENDANCE_DIR):
-                    if fname.startswith("Attendance_") and fname.endswith(".csv"):
-                        fpath = os.path.join(ATTENDANCE_DIR, fname)
-                        try:
-                            df_tmp = pd.read_csv(fpath)
-                            date_part = fname.replace("Attendance_", "").replace(".csv", "")
-                            df_tmp["DATE"] = date_part
-                            all_frames.append(df_tmp)
-                        except Exception:
-                            continue
-
-            if all_frames:
-                df_all = pd.concat(all_frames, ignore_index=True)
-
-                if "NAME" in df_all.columns and "DATE" in df_all.columns:
-                    students = sorted(df_all["NAME"].dropna().unique())
-                    selected_student = st.selectbox("Select student", students)
-
-                    df_student = df_all[df_all["NAME"] == selected_student]
-
-                    if not df_student.empty:
-                        st.write(f"##### Attendance for: {selected_student}")
-
-                        total_days = df_all["DATE"].nunique()
-                        days_present = df_student["DATE"].nunique()
-
-                        att_percent = (days_present / total_days * 100) if total_days > 0 else 0
-
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric("Days Present", days_present)
-                        c2.metric("Total Days (in data)", total_days)
-                        c3.metric("Attendance %", f"{att_percent:.2f}%")
-
-                        st.markdown("**Dates Present:**")
-                        st.write(sorted(df_student["DATE"].unique()))
-
-                        st.markdown("**Detailed Records:**")
-                        st.dataframe(df_student[["DATE", "TIME"]].sort_values("DATE"))
-                    else:
-                        st.info("No records found for this student.")
-                else:
-                    st.info("Attendance data is missing NAME/DATE columns.")
+            collection = get_attendance_collection()
+            if collection is None:
+                st.info("Cloud database is not configured.")
             else:
-                st.info("No attendance data found yet.")
+                docs = list(collection.find({}))
+                if not docs:
+                    st.info("No attendance data found yet.")
+                else:
+                    df_all = pd.DataFrame(docs)
+                    if "_id" in df_all.columns:
+                        df_all.drop(columns=["_id"], inplace=True)
+                    df_all.rename(
+                        columns={"name": "NAME", "date": "DATE", "time": "TIME"},
+                        inplace=True
+                    )
 
-        # ---------- TAB 3: COMPARE STUDENTS ----------
+                    if "NAME" in df_all.columns and "DATE" in df_all.columns:
+                        students = sorted(df_all["NAME"].dropna().unique())
+                        selected_student = st.selectbox("Select student", students)
+
+                        df_student = df_all[df_all["NAME"] == selected_student]
+
+                        if not df_student.empty:
+                            st.write(f"##### Attendance for: {selected_student}")
+
+                            total_days = df_all["DATE"].nunique()
+                            days_present = df_student["DATE"].nunique()
+                            att_percent = (days_present / total_days * 100) if total_days > 0 else 0
+
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("Days Present", days_present)
+                            c2.metric("Total Days (in data)", total_days)
+                            c3.metric("Attendance %", f"{att_percent:.2f}%")
+
+                            st.markdown("**Dates Present:**")
+                            st.write(sorted(df_student["DATE"].unique()))
+
+                            st.markdown("**Detailed Records:**")
+                            st.dataframe(df_student[["DATE", "TIME"]].sort_values("DATE"))
+                        else:
+                            st.info("No records found for this student.")
+                    else:
+                        st.info("Attendance data is missing NAME/DATE columns.")
+
+        # ---------- TAB 3: COMPARE STUDENTS (Mongo) ----------
         with tab3:
             st.markdown("#### ⚖️ Compare Students")
 
-            all_frames_cmp = []
-            if os.path.exists(ATTENDANCE_DIR):
-                for fname in os.listdir(ATTENDANCE_DIR):
-                    if fname.startswith("Attendance_") and fname.endswith(".csv"):
-                        fpath = os.path.join(ATTENDANCE_DIR, fname)
-                        try:
-                            df_tmp = pd.read_csv(fpath)
-                            date_part = fname.replace("Attendance_", "").replace(".csv", "")
-                            df_tmp["DATE"] = date_part
-                            all_frames_cmp.append(df_tmp)
-                        except Exception:
-                            continue
-
-            if all_frames_cmp:
-                df_all_cmp = pd.concat(all_frames_cmp, ignore_index=True)
-
-                if "NAME" in df_all_cmp.columns and "DATE" in df_all_cmp.columns:
-                    students_all = sorted(df_all_cmp["NAME"].dropna().unique())
-                    selected_students = st.multiselect(
-                        "Select students to compare",
-                        students_all,
-                        max_selections=5
+            collection = get_attendance_collection()
+            if collection is None:
+                st.info("Cloud database is not configured.")
+            else:
+                docs = list(collection.find({}))
+                if not docs:
+                    st.info("No attendance data found yet for comparison.")
+                else:
+                    df_all_cmp = pd.DataFrame(docs)
+                    if "_id" in df_all_cmp.columns:
+                        df_all_cmp.drop(columns=["_id"], inplace=True)
+                    df_all_cmp.rename(
+                        columns={"name": "NAME", "date": "DATE", "time": "TIME"},
+                        inplace=True
                     )
 
-                    if selected_students:
-                        total_days = df_all_cmp["DATE"].nunique()
-
-                        comp = (
-                            df_all_cmp[df_all_cmp["NAME"].isin(selected_students)]
-                            .groupby("NAME")["DATE"]
-                            .nunique()
-                            .reset_index(name="Days Present")
+                    if "NAME" in df_all_cmp.columns and "DATE" in df_all_cmp.columns:
+                        students_all = sorted(df_all_cmp["NAME"].dropna().unique())
+                        selected_students = st.multiselect(
+                            "Select students to compare",
+                            students_all,
+                            max_selections=5
                         )
 
-                        if total_days > 0:
-                            comp["Attendance %"] = (comp["Days Present"] / total_days * 100).round(2)
+                        if selected_students:
+                            total_days = df_all_cmp["DATE"].nunique()
 
-                        st.dataframe(comp.set_index("NAME"))
+                            comp = (
+                                df_all_cmp[df_all_cmp["NAME"].isin(selected_students)]
+                                .groupby("NAME")["DATE"]
+                                .nunique()
+                                .reset_index(name="Days Present")
+                            )
 
-                        st.bar_chart(
-                            data=comp.set_index("NAME")["Attendance %"],
-                            use_container_width=True
-                        )
+                            if total_days > 0:
+                                comp["Attendance %"] = (comp["Days Present"] / total_days * 100).round(2)
+
+                            st.dataframe(comp.set_index("NAME"))
+
+                            st.bar_chart(
+                                data=comp.set_index("NAME")["Attendance %"],
+                                use_container_width=True
+                            )
+                        else:
+                            st.info("Select at least one student to compare.")
                     else:
-                        st.info("Select at least one student to compare.")
-                else:
-                    st.info("Attendance data is missing NAME/DATE columns.")
-            else:
-                st.info("No attendance data found yet for comparison.")
+                        st.info("Attendance data is missing NAME/DATE columns.")
 
         # ---------- DANGER ZONE: ERASE ALL DATA ----------
         st.markdown("---")
         st.markdown("### 🧨 Danger Zone: Erase All Data")
         st.warning(
             "This will permanently delete **all registered faces** and **all attendance records** "
-            "stored so far. This action cannot be undone."
+            "stored so far (both MongoDB + local face data). This action cannot be undone."
         )
 
         if st.button("⚠️ Erase ALL data (faces + attendance)", key="erase_all_data_main"):
@@ -405,24 +476,19 @@ with st.container():
             with col1:
                 if st.button("✅ Yes, erase everything", key="erase_all_data_confirm"):
                     try:
+                        # Delete face data pickle files
                         data_dir = Path("Data")
                         for fname in ["names.pkl", "faces_data.pkl"]:
                             fpath = data_dir / fname
                             if fpath.exists():
                                 fpath.unlink()
 
-                        attendance_dir = Path(ATTENDANCE_DIR)
-                        if attendance_dir.exists():
-                            for f in attendance_dir.glob("Attendance_*.csv"):
-                                f.unlink()
-                            try:
-                                if not any(attendance_dir.iterdir()):
-                                    attendance_dir.rmdir()
-                            except Exception:
-                                pass
-
+                        # Delete all attendance docs from Mongo
+                        collection = get_attendance_collection()
+                        if collection is not None:
+                            collection.delete_many({})
                         st.success("✅ All face data and attendance records have been erased.")
-                        st.info("Please refresh or restart the app before using it again.")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Error while erasing data: {e}")
                     finally:

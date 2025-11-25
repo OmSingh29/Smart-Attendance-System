@@ -1,5 +1,5 @@
 .streamlit/secrets.toml
 Attendance/
 __pycache__
-db.py
 .vscode
+smart_attendance/
