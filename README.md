@@ -93,7 +93,7 @@ Select any date to view the attendance list.
 ### MongoDB Document Format
 ```json
 {
-  "name": "Arin",
+  "name": "ABCD",
   "date": "25-11-2025",
   "time": "09:12:54",
   "timestamp": "2025-11-25T09:12:54+05:30",
