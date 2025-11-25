@@ -38,7 +38,7 @@ git clone https://github.com/OmSingh29/smart-attendance-system
 cd smart-attendance-system
 ```
 
-### 2. Create Virtual Environment (NO conda)
+### 2. Create Virtual Environment
 ```bash
 python -m venv smart_attendance
 ```
