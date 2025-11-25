@@ -261,7 +261,6 @@ with st.container():
         else:
             st.warning(f"No attendance found for {selected_date_str}.")
 
-
 # ======================= Section 4: Admin Panel (MongoDB-based) =======================
 with st.container():
     st.subheader("🔐 Admin Panel")
