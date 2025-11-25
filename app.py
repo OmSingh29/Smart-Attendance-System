@@ -12,6 +12,7 @@ import threading
 import av  # Needed to return frames correctly
 import warnings
 from zoneinfo import ZoneInfo
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
@@ -21,7 +22,7 @@ from take_attendance import load_model, mark_attendance
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Smart Attendance System", layout="centered")
-st.title("📋 Smart Attendance System")
+st.title("Smart Attendance System")
 
 ATTENDANCE_DIR = "Attendance"
 
@@ -36,6 +37,13 @@ if "feedback" not in st.session_state:
     st.session_state.feedback = ""
 if "recognized_name" not in st.session_state:
     st.session_state.recognized_name = "Unknown"
+if "erase_all_confirm" not in st.session_state:
+    st.session_state.erase_all_confirm = False
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+if "admin_password" not in st.session_state:
+    st.session_state.admin_password = ""
+
 
 # --- Load Models and Data ---
 try:
@@ -191,94 +199,236 @@ with st.container():
     else:
         st.info("Please register a face before taking attendance.")
 
-# ===== Section 3: Attendance Viewer & Analytics (ENHANCED, SAFE) =====
+# ----- Section 3: Simple Today View (optional, kept if you like) -----
 with st.container():
-    st.subheader("📅 Attendance Viewer & Analytics")
-
-    # ---- Select Date & Show That Day's Attendance ----
-    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
-    selected_date = st.date_input("Select date to view attendance", value=today_ist)
-
-    date_str = selected_date.strftime("%d-%m-%Y")
-    filename = f"{ATTENDANCE_DIR}/Attendance_{date_str}.csv"
-
-    if os.path.exists(filename):
+    st.subheader("📅 Today's Attendance (Quick View)")
+    today_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y")
+    today_file = f"{ATTENDANCE_DIR}/Attendance_{today_str}.csv"
+    if os.path.exists(today_file):
         try:
-            df_day = pd.read_csv(filename)
-
-            st.markdown("### 📄 Attendance for Selected Date")
-
-            # Summary metrics
-            total_entries = len(df_day)
-            unique_students = df_day["NAME"].nunique() if "NAME" in df_day.columns else 0
-            first_time = df_day["TIME"].min() if "TIME" in df_day.columns else "-"
-            last_time = df_day["TIME"].max() if "TIME" in df_day.columns else "-"
-
-            c1, c2 = st.columns(2)
-            c1.metric("Total Entries", total_entries)
-            c2.metric("Unique Students", unique_students)
-
-            # Full time range as normal text (no truncation)
-            st.write(f"⏳ **Time Range:** `{first_time}` — `{last_time}`")
-
-            st.dataframe(df_day)
-
-            # Download button for this day's CSV
-            with open(filename, "rb") as f:
-                st.download_button(
-                    label="⬇ Download this day's CSV",
-                    data=f,
-                    file_name=os.path.basename(filename),
-                    mime="text/csv"
-                )
-
+            df_today = pd.read_csv(today_file)
+            st.dataframe(df_today)
         except Exception as e:
-            st.error(f"Could not read the attendance file: {e}")
+            st.error(f"Could not read today's attendance file: {e}")
     else:
-        st.warning("No attendance has been recorded for the selected date yet.")
+        st.warning("No attendance has been recorded for today yet.")
 
-    # ---- Analytics Across All Days ----
-    st.markdown("### 📊 Attendance Analytics (All Days)")
+# ===== Section 4: 🔐 Admin Panel (Edit + Per-Student Analytics + Comparison) =====
+with st.container():
+    st.subheader("🔐 Admin Panel")
 
-    if os.path.exists(ATTENDANCE_DIR):
-        frames = []
-        for fname in os.listdir(ATTENDANCE_DIR):
-            if fname.startswith("Attendance_") and fname.endswith(".csv"):
-                fpath = os.path.join(ATTENDANCE_DIR, fname)
-                try:
-                    df_tmp = pd.read_csv(fpath)
-                    # Extract date from filename: Attendance_DD-MM-YYYY.csv
-                    date_part = fname.replace("Attendance_", "").replace(".csv", "")
-                    df_tmp["DATE"] = date_part
-                    frames.append(df_tmp)
-                except Exception:
-                    continue
+    # If NOT in admin mode yet → show login
+    if not st.session_state.is_admin:
+        password_input = st.text_input(
+            "Enter admin password",
+            type="password",
+            key="admin_password_input"
+        )
 
-        if frames:
-            df_all = pd.concat(frames, ignore_index=True)
-
-            if "NAME" in df_all.columns and "DATE" in df_all.columns:
-                total_days = df_all["DATE"].nunique()
-                summary = (
-                    df_all.groupby("NAME")["DATE"]
-                    .nunique()
-                    .reset_index(name="Days Present")
-                    .sort_values("Days Present", ascending=False)
-                )
-
-                if total_days > 0:
-                    summary["Attendance %"] = (summary["Days Present"] / total_days * 100).round(2)
-
-                st.dataframe(summary)
-
-                # Simple bar chart: Days Present per student
-                st.bar_chart(
-                    data=summary.set_index("NAME")["Days Present"],
-                    use_container_width=True
-                )
+        if st.button("🔓 Login as Admin"):
+            if password_input == "admin123":
+                st.session_state.is_admin = True
+                st.session_state.admin_password = ""
+                st.success("Admin mode enabled. Loading admin tools...")
+                st.rerun()  # re-run so that the 'else' block below is executed
             else:
-                st.info("Attendance data is missing NAME/DATE columns.")
-        else:
-            st.info("No attendance files found yet for analytics.")
+                st.error("Incorrect admin password.")
     else:
-        st.info("Attendance directory does not exist yet. Take some attendance first.")
+        # Already in admin mode
+        st.success("✅ Admin mode enabled")
+
+        # Logout button
+        if st.button("🚪 Exit Admin Mode"):
+            st.session_state.is_admin = False
+            st.session_state.admin_password = ""
+            st.session_state.erase_all_confirm = False
+            st.info("You have exited admin mode.")
+            st.rerun()
+
+        tab1, tab2, tab3 = st.tabs(["✏️ Edit Attendance", "📊 Student Analytics", "⚖️ Compare Students"])
+
+        # ---------- TAB 1: EDIT ATTENDANCE ----------
+        with tab1:
+            st.markdown("#### ✏️ Edit / Add / Delete Attendance Records")
+
+            today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+            edit_date = st.date_input("Select date to edit", value=today_ist, key="admin_edit_date")
+
+            edit_date_str = edit_date.strftime("%d-%m-%Y")
+            edit_filename = f"{ATTENDANCE_DIR}/Attendance_{edit_date_str}.csv"
+
+            if os.path.exists(edit_filename):
+                df_edit = pd.read_csv(edit_filename)
+            else:
+                # Empty DataFrame with correct columns if file doesn't exist
+                df_edit = pd.DataFrame(columns=["NAME", "TIME"])
+
+            st.info("You can add new rows or modify/delete existing rows below.")
+            edited_df = st.data_editor(
+                df_edit,
+                num_rows="dynamic",
+                key="admin_editor"
+            )
+
+            if st.button("💾 Save changes for selected date"):
+                # Ensure Attendance directory exists
+                if not os.path.exists(ATTENDANCE_DIR):
+                    os.makedirs(ATTENDANCE_DIR)
+                edited_df.to_csv(edit_filename, index=False)
+                st.success(f"Saved changes to {edit_filename}")
+
+                st.caption(
+                    "- To add attendance of a person who has not come: add a new row with NAME and TIME.\n"
+                    "- To delete a record: remove that row from the table before saving."
+                )
+
+        # ---------- TAB 2: STUDENT ANALYTICS ----------
+        with tab2:
+            st.markdown("#### 📊 Analytics for a Single Student")
+
+            all_frames = []
+            if os.path.exists(ATTENDANCE_DIR):
+                for fname in os.listdir(ATTENDANCE_DIR):
+                    if fname.startswith("Attendance_") and fname.endswith(".csv"):
+                        fpath = os.path.join(ATTENDANCE_DIR, fname)
+                        try:
+                            df_tmp = pd.read_csv(fpath)
+                            date_part = fname.replace("Attendance_", "").replace(".csv", "")
+                            df_tmp["DATE"] = date_part
+                            all_frames.append(df_tmp)
+                        except Exception:
+                            continue
+
+            if all_frames:
+                df_all = pd.concat(all_frames, ignore_index=True)
+
+                if "NAME" in df_all.columns and "DATE" in df_all.columns:
+                    students = sorted(df_all["NAME"].dropna().unique())
+                    selected_student = st.selectbox("Select student", students)
+
+                    df_student = df_all[df_all["NAME"] == selected_student]
+
+                    if not df_student.empty:
+                        st.write(f"##### Attendance for: {selected_student}")
+
+                        total_days = df_all["DATE"].nunique()
+                        days_present = df_student["DATE"].nunique()
+
+                        att_percent = (days_present / total_days * 100) if total_days > 0 else 0
+
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Days Present", days_present)
+                        c2.metric("Total Days (in data)", total_days)
+                        c3.metric("Attendance %", f"{att_percent:.2f}%")
+
+                        st.markdown("**Dates Present:**")
+                        st.write(sorted(df_student["DATE"].unique()))
+
+                        st.markdown("**Detailed Records:**")
+                        st.dataframe(df_student[["DATE", "TIME"]].sort_values("DATE"))
+                    else:
+                        st.info("No records found for this student.")
+                else:
+                    st.info("Attendance data is missing NAME/DATE columns.")
+            else:
+                st.info("No attendance data found yet.")
+
+        # ---------- TAB 3: COMPARE STUDENTS ----------
+        with tab3:
+            st.markdown("#### ⚖️ Compare Students")
+
+            all_frames_cmp = []
+            if os.path.exists(ATTENDANCE_DIR):
+                for fname in os.listdir(ATTENDANCE_DIR):
+                    if fname.startswith("Attendance_") and fname.endswith(".csv"):
+                        fpath = os.path.join(ATTENDANCE_DIR, fname)
+                        try:
+                            df_tmp = pd.read_csv(fpath)
+                            date_part = fname.replace("Attendance_", "").replace(".csv", "")
+                            df_tmp["DATE"] = date_part
+                            all_frames_cmp.append(df_tmp)
+                        except Exception:
+                            continue
+
+            if all_frames_cmp:
+                df_all_cmp = pd.concat(all_frames_cmp, ignore_index=True)
+
+                if "NAME" in df_all_cmp.columns and "DATE" in df_all_cmp.columns:
+                    students_all = sorted(df_all_cmp["NAME"].dropna().unique())
+                    selected_students = st.multiselect(
+                        "Select students to compare",
+                        students_all,
+                        max_selections=5
+                    )
+
+                    if selected_students:
+                        total_days = df_all_cmp["DATE"].nunique()
+
+                        comp = (
+                            df_all_cmp[df_all_cmp["NAME"].isin(selected_students)]
+                            .groupby("NAME")["DATE"]
+                            .nunique()
+                            .reset_index(name="Days Present")
+                        )
+
+                        if total_days > 0:
+                            comp["Attendance %"] = (comp["Days Present"] / total_days * 100).round(2)
+
+                        st.dataframe(comp.set_index("NAME"))
+
+                        st.bar_chart(
+                            data=comp.set_index("NAME")["Attendance %"],
+                            use_container_width=True
+                        )
+                    else:
+                        st.info("Select at least one student to compare.")
+                else:
+                    st.info("Attendance data is missing NAME/DATE columns.")
+            else:
+                st.info("No attendance data found yet for comparison.")
+
+        # ---------- DANGER ZONE: ERASE ALL DATA ----------
+        st.markdown("---")
+        st.markdown("### 🧨 Danger Zone: Erase All Data")
+        st.warning(
+            "This will permanently delete **all registered faces** and **all attendance records** "
+            "stored so far. This action cannot be undone."
+        )
+
+        if st.button("⚠️ Erase ALL data (faces + attendance)", key="erase_all_data_main"):
+            st.session_state.erase_all_confirm = True
+
+        if st.session_state.erase_all_confirm:
+            st.error("Are you absolutely sure you want to ERASE ALL DATA? This cannot be undone.")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Yes, erase everything", key="erase_all_data_confirm"):
+                    try:
+                        data_dir = Path("Data")
+                        for fname in ["names.pkl", "faces_data.pkl"]:
+                            fpath = data_dir / fname
+                            if fpath.exists():
+                                fpath.unlink()
+
+                        attendance_dir = Path(ATTENDANCE_DIR)
+                        if attendance_dir.exists():
+                            for f in attendance_dir.glob("Attendance_*.csv"):
+                                f.unlink()
+                            try:
+                                if not any(attendance_dir.iterdir()):
+                                    attendance_dir.rmdir()
+                            except Exception:
+                                pass
+
+                        st.success("✅ All face data and attendance records have been erased.")
+                        st.info("Please refresh or restart the app before using it again.")
+                    except Exception as e:
+                        st.error(f"Error while erasing data: {e}")
+                    finally:
+                        st.session_state.erase_all_confirm = False
+
+            with col2:
+                if st.button("❌ Cancel", key="erase_all_data_cancel"):
+                    st.session_state.erase_all_confirm = False
+                    st.info("Erase operation cancelled.")

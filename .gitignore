@@ -1,0 +1,5 @@
+.streamlit/secrets.toml
+Attendance/
+Data/
+__pycache__
+db.py

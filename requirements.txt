@@ -5,3 +5,4 @@ opencv-python-headless==4.10.0.84; platform_system != "Windows"
 scikit-learn==1.5.1
 pandas==2.2.2
 numpy==1.26.4
+pymongo==4.10.1
