@@ -155,7 +155,7 @@ with st.container():
 
 # ======================= Section 2: Take Attendance =======================
 with st.container():
-    st.subheader("✅ Take Attendance")
+    st.subheader("Take Attendance")
 
     if knn:
         st.info("Click 'START' below to begin attendance.")
@@ -208,7 +208,7 @@ with st.container():
 
 # ======================= Section 3: Today's Attendance (from MongoDB) =======================
 with st.container():
-    st.subheader("📅 Today's Attendance (Quick View)")
+    st.subheader("Today's Attendance (Quick View)")
 
     today_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y")
     collection = get_attendance_collection()
@@ -233,7 +233,7 @@ with st.container():
 
 # ======================= Section: Attendance Viewer (Any Date) =======================
 with st.container():
-    st.subheader("📅 View Attendance for Any Date")
+    st.subheader("View Attendance for Any Date")
 
     collection = get_attendance_collection()
     if collection is None:
@@ -263,7 +263,7 @@ with st.container():
 
 # ======================= Section 4: Admin Panel (MongoDB-based) =======================
 with st.container():
-    st.subheader("🔐 Admin Panel")
+    st.subheader("Admin Panel")
 
     if not st.session_state.is_admin:
         # Show ONLY the default password, never the changed one
@@ -276,7 +276,7 @@ with st.container():
             key="admin_password_input"
         )
 
-        if st.button("🔓 Login as Admin"):
+        if st.button("Login as Admin"):
             if password_input == st.session_state.admin_password_current:
                 st.session_state.is_admin = True
                 st.success("Admin mode enabled. Loading admin tools...")
@@ -284,7 +284,7 @@ with st.container():
             else:
                 st.error("Incorrect admin password.")
     else:
-        st.success("✅ Admin mode enabled")
+        st.success("Admin mode enabled")
 
         # ----- Change admin password (only visible in admin mode) -----
         with st.expander("Change admin password"):
@@ -304,7 +304,7 @@ with st.container():
                 key="new_admin_pw_confirm"
             )
 
-            if st.button("✅ Update admin password"):
+            if st.button("Update admin password"):
                 if not new_pw:
                     st.error("New password cannot be empty.")
                 elif new_pw != new_pw_confirm:
@@ -313,16 +313,16 @@ with st.container():
                     st.session_state.admin_password_current = new_pw
                     st.success("Admin password updated successfully. Use the new password next time you log in.")
 
-        if st.button("🚪 Exit Admin Mode"):
+        if st.button("Exit Admin Mode"):
             st.session_state.is_admin = False
             st.info("You have exited admin mode.")
             st.rerun()
 
-        tab1, tab2, tab3 = st.tabs(["✏️ Edit Attendance", "📊 Student Analytics", "⚖️ Compare Students"])
+        tab1, tab2, tab3 = st.tabs(["Edit Attendance", "Student Analytics", "Compare Students"])
 
         # ---------- TAB 1: EDIT ATTENDANCE (Mongo) ----------
         with tab1:
-            st.markdown("#### ✏️ Edit / Add / Delete Attendance Records")
+            st.markdown("#### Edit / Add / Delete Attendance Records")
 
             today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
             edit_date = st.date_input("Select date to edit", value=today_ist, key="admin_edit_date")
@@ -352,7 +352,7 @@ with st.container():
                     key="admin_editor"
                 )
 
-                if st.button("💾 Save changes for selected date"):
+                if st.button("Save changes for selected date"):
                     try:
                         # Replace all records for that date with edited_df
                         collection.delete_many({"date": edit_date_str})
@@ -388,7 +388,7 @@ with st.container():
 
         # ---------- TAB 2: STUDENT ANALYTICS (Mongo) ----------
         with tab2:
-            st.markdown("#### 📊 Analytics for a Single Student")
+            st.markdown("#### Analytics for a Single Student")
 
             collection = get_attendance_collection()
             if collection is None:
@@ -436,7 +436,7 @@ with st.container():
 
         # ---------- TAB 3: COMPARE STUDENTS (Mongo) ----------
         with tab3:
-            st.markdown("#### ⚖️ Compare Students")
+            st.markdown("#### Compare Students")
 
             collection = get_attendance_collection()
             if collection is None:
@@ -488,13 +488,13 @@ with st.container():
 
         # ---------- DANGER ZONE: ERASE ALL DATA ----------
         st.markdown("---")
-        st.markdown("### 🧨 Danger Zone: Erase All Data")
+        st.markdown("### Reset: Erase All Data")
         st.warning(
             "This will permanently delete **all registered faces** and **all attendance records** "
             "stored so far (both MongoDB + local face data). This action cannot be undone."
         )
 
-        if st.button("⚠️ Erase ALL data (faces + attendance)", key="erase_all_data_main"):
+        if st.button(" Erase ALL data (faces + attendance)", key="erase_all_data_main"):
             st.session_state.erase_all_confirm = True
 
         if st.session_state.erase_all_confirm:
@@ -502,7 +502,7 @@ with st.container():
 
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("✅ Yes, erase everything", key="erase_all_data_confirm"):
+                if st.button("Yes, erase everything", key="erase_all_data_confirm"):
                     try:
                         # Delete face data pickle files
                         data_dir = Path("Data")
@@ -515,7 +515,7 @@ with st.container():
                         collection = get_attendance_collection()
                         if collection is not None:
                             collection.delete_many({})
-                        st.success("✅ All face data and attendance records have been erased.")
+                        st.success("All face data and attendance records have been erased.")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error while erasing data: {e}")
