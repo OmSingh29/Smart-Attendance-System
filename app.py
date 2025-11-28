@@ -94,7 +94,7 @@ class RegistrationProcessor(VideoTransformerBase):
 
 # ======================= Section 1: Register New Face =======================
 with st.container():
-    st.subheader("🧑‍💻 Register New Face")
+    st.subheader("Register New Face")
     st.session_state.new_name = st.text_input(
         "Enter your name:",
         value=st.session_state.get('new_name', ''),
